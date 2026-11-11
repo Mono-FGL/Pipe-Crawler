@@ -1,0 +1,97 @@
+// This gives how far drifted from starting point (No direction just magnitude)
+// Good for diagnostics/sensor fusion
+// Foward Declaration(Function Prototypes)
+Quat normalize(Quat q);
+double quat_dot(Quat q1, Quat q2);
+double angular_distance(Quat q_ref, Quat q_curr);
+double getYaw(imu::Quaternion q);
+extern float Distance;
+
+// Converts quat to Euler angles
+double getYaw(imu::Quaternion q)
+{
+  //Sine of yaw times cosine of pitch = that
+  // q.w() instead of q.w because it has to go fetch the value
+  double siny_cosp = 2.0 * (q.w() * q.z() + q.x() * q.y()); // Calculates Left/Right positioning on flat grid
+  // Cosine of yaw times cosine of pitch = that
+  double cosy_cosp = 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()); // Calculates Foward and Back positioning on flat grid
+  // atan2 is arctan(atan), the 2 checks both numbers and their signs for a 4 quadrant map
+  // arctan reverts distance on flat grid into steering angle (Raw spatial coordinates into a single usable angle ex: 45 degrees)
+  return atan2(siny_cosp, cosy_cosp); //Converts to Radian 
+}
+
+double getPitch(imu::Quaternion q)
+{
+  // sin pitch
+  double sinp = 2.0 * (q.w() * q.y() - q.z() * q.x());
+  // Keep withing radian 
+  if (sinp >= 1.0) 
+    return PI / 2.0;
+  if (sinp <= -1.0) 
+    return -PI / 2.0;
+  return asin(sinp); // Arcsine turns into angle
+}
+
+// Take data type imu::Quaternion named quat and deltaA_meters from rotary encoder
+void ControlQuat(imu::Quaternion quat, float delta_meters) {
+  //Pack into custom Quat structure (current_orientation is under Quat type)
+  current_orientation.w = quat.w();
+  current_orientation.x = quat.x();
+  current_orientation.y = quat.y();
+  current_orientation.z = quat.z();
+
+  //Lock reference orientation and yaw on first run
+  if (!isReferenceSet) {
+    reference_orientation = current_orientation;
+    ref_yaw = getYaw(quat);
+    ref_pitch = getPitch(quat);
+    isReferenceSet = true;
+    Serial.println("Reference heading locked");
+  }
+
+
+  double raw_yaw = getYaw(quat); //Radian
+  double raw_pitch = getPitch(quat);
+
+  double real_yaw = raw_yaw - ref_yaw;  // Find angle of Yaw difference from starting point
+  double real_pitch = raw_pitch - ref_pitch;
+
+  // Correct radian wrap-around check (-PI -> +PI)
+  while(real_yaw > PI)
+    real_yaw -= 2.0 * PI;
+  while(real_yaw < -PI)
+    real_yaw += 2.0 * PI;
+
+  // Dead Reckoning (In radians)
+  pos_x += delta_meters * cos(real_pitch) * cos(real_yaw);
+  pos_y += delta_meters * cos(real_pitch) * sin(real_yaw);
+  pos_z += delta_meters * sin(real_pitch);
+
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= 300) {
+    previousMillis = currentMillis;
+    // Serial.print("Yaw: ");
+    // Serial.print(real_yaw, 2);
+    // Serial.print(" X: ");
+    Serial.print(pos_x, 3);
+    Serial.print("\t");
+    Serial.print(pos_y, 3);
+    Serial.print("\t");
+    Serial.println(pos_z, 3);
+    // Serial.print(" Dist: ");
+    // Serial.print(Distance, 3);
+    // Serial.print(" Drift3D: ");
+    // Serial.println(drift_deg, 2);
+
+    // Log data to file safely
+    if (f != NULL) {
+      fprintf(f, "%.4f, %.4f, %.4f\n", pos_x, pos_y, pos_z);
+      
+      // CRITICAL: Empty the RAM buffer and force an immediate physical save
+      fflush(f); 
+      fsync(fileno(f)); 
+    }
+  }
+}

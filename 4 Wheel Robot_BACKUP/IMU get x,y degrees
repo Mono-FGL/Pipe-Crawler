@@ -1,0 +1,140 @@
+// This gives how far drifted from starting point (No direction just magnitude)
+// Good for diagnostics/sensor fusion
+// Foward Declaration(Function Prototypes)
+Quat normalize(Quat q);
+double quat_dot(Quat q1, Quat q2);
+double angular_distance(Quat q_ref, Quat q_curr);
+double getYaw(imu::Quaternion q);
+
+// Converts quat to Euler angles 
+double getYaw(imu::Quaternion q)
+{
+  //Sine of yaw times cosine of pitch = that
+  // q.w() instead of q.w because it has to go fetch the value 
+  double siny_cosp = 2.0 * (q.w() * q.z(0 + q.x() * q.y()); // Calculates Left/Right positioning on flat grid
+  // Cosine of yaw times cosine of pitch = that
+  double cosy_cosp = 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()); // Calculates Foward and Back positioning on flat grid
+  // atan2 is arctan(atan), the 2 checks both numbers and their signs for a 4 quadrant map
+  // arctan reverts distance on flat grid into steering angle (Raw spatial coordinates into a single usable angle ex: 45 degrees)
+  return atan2(siny_cosp, cosy_cosp) * (180.0 / PI); //Converts from Radian to Degree
+}
+
+// Take data type imu::Quaternion named quat and deltaA_meters from rotary encoder
+void ControlQuat(imu::Quaternion quat, float delta_meters)
+{
+  //Pack into custom Quat structure (current_orientation is under Quat type)
+  current_orientation.w = quat.w();
+  current_orientation.x = quat.x();
+  current_orientation.y = quat.y();
+  current_orientation.z = quat.z();
+
+  //Lock reference orientation and yaw on first run
+  if(!isReferenceSet)
+  {
+    reference_orientation = current_orientation;
+    ref_yaw = getYaw(quat);
+    isReferenceSet = true; 
+    Serial.println("Reference heading locked");
+  }
+
+
+  double raw_yaw = getYaw(quat);
+  double real_yaw = raw_yaw - ref_yaw; // Find angle of Yaw difference from starting point
+
+  // Wraps around to negative or positive once beyond 180
+  if(rel_yaw > 180.0) 
+    rel_yaw -= 360.0;
+  if(rel_yaw < -180.0) 
+    rel_yaw += 360.0;
+
+  // Dead Reckoning - Convert from degree to Radian 
+  double headin_rad = rel_yaw * (PI / 180.0);
+  pos_x += delta_meters * cos(heading_rad); // Measures how parallel to x
+  pos_y += delta_meters * sin(heading_rad); // Measures if it moves perpindicular to y
+
+  double drift_deg = angular_distance(refernce_orientation, current_orientation);
+
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if(currentMillis - previousMillis >= 500)
+  {
+    previousMillis = currentMillis;
+    Serial.print("Yaw: ");        Serial.print(rel_yaw, 2);
+    Serial.print(" X: ");         Serial.print(pos_x, 3);
+    Serial.print(" Y: ");         Serial.print(pos_y, 3);
+    Serial.print(" Dist: ");      Serial.print(Distance, 3);
+    Serial.print(" Drift3D: ");   Serial.println(drift_deg, 2);
+  }
+}
+
+// Quat magnitude (Angle from original reference)
+// void ControlQuat(imu::Quaternion quat)
+// {
+//   //Pack libary into custom Quat structure
+//   current_orientation.w = quat.w();
+//   current_orientation.x = quat.x();
+//   current_orientation.y = quat.y();
+//   current_orientation.z = quat.z();
+
+//   //Captures
+//   if(!isReferenceSet)
+//   {
+//     reference_orientation = current_orientation;
+//     isReferenceSet = true;
+//     Serial.println("IMU Reference position locked");
+//   }
+
+//   static unsigned long previousMillis = 0;
+//   unsigned long currentMillis = millis();
+//   int interval = 500; 
+
+//   if(currentMillis - previousMillis >= interval)
+//   {
+//   previousMillis = currentMillis;
+//   //Calculate 3d drift angle in degrees 
+//   double drift_degrees = angular_distance(reference_orientation, current_orientation);
+
+//   //Print out degrees to Serial
+//   Serial.print("Drift_Degrees: ");
+//   Serial.println(drift_degrees);
+//   }
+// }
+
+Quat normalize(Quat q)
+{
+  double mag = sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
+  // Prevent division if already somehow 0 
+  if(mag == 0)
+  {
+    return {1.0, 0.0, 0.0, 0.0};
+  }
+  q.w = q.w / mag;
+  q.x = q.x / mag;
+  q.y = q.y / mag;
+  q.z = q.z / mag;
+  return q;
+}
+
+double quat_dot(Quat q1, Quat q2)
+{
+  return q1.w*q2.w + q1.x*q2.x + q1.y*q2.y + q1.z*q2.z;
+}
+
+double angular_distance(Quat q_ref, Quat q_curr)
+{
+  //Take reference orientation and current orientation to compare against 
+  //Normalize meaning to convert into vector units 
+  q_ref = normalize(q_ref);
+  q_curr = normalize(q_curr);
+  double dot = quat_dot(q_ref, q_curr);
+  //Get Absolute value
+  dot = fabs(dot);
+  //So it doesn't crash must be <= 1 
+  if (dot > 1.0) dot = 1.0;
+  if (dot < -1.0) dot = -1.0;
+  // acos(Arc Cosine) converts into radians 
+  double angle_radians = 2.0 * acos(dot);
+  // Converts Radians to Degrees 
+  return angle_radians * (180.0 / PI);
+}

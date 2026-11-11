@@ -1,0 +1,178 @@
+#include <Wire.h>
+#include <DIYables_LCD_I2C.h> 
+#include <Arduino_USBHostMbed5.h>
+#include <DigitalOut.h>
+#include <FATFileSystem.h>
+
+DIYables_LCD_I2C lcd(0x27, 16, 2, Wire); 
+
+USBHostMSD msd;
+mbed::FATFileSystem usb("usb");
+FILE *f = NULL; 
+
+// Encoder pins and variables
+const int ENCODER_LEFT_A = 10;
+const int ENCODER_LEFT_B = 11;
+volatile long LeftTicks = 0;
+
+const int ENCODER_RIGHT_A = 12;
+const int ENCODER_RIGHT_B = 13;
+volatile long RightTicks = 0;
+
+const float DISTANCE_PER_TICK = 0.98174770424;  // (mm/TPR)
+float distanceTraveled = 0;
+
+long prev_left = 0;
+long prev_right = 0;
+
+void doLeftEncoder() {
+  static uint8_t last_state = 0;
+  uint8_t A = digitalRead(ENCODER_LEFT_A);
+  uint8_t B = digitalRead(ENCODER_LEFT_B);
+  uint8_t state = (A << 1) | B;
+  if((last_state == 0 && state == 1) || (last_state == 1 && state == 3) || (last_state == 3 && state == 2) || (last_state == 2 && state == 0)) {
+    LeftTicks++;
+  } else if ((last_state == 0 && state == 2) || (last_state == 2 && state == 3) || (last_state == 3 && state == 1) || (last_state == 1 && state == 0 )) {
+    LeftTicks--;
+  }
+  last_state = state;
+}
+
+void doRightEncoder() {
+  static uint8_t last_state = 0;
+  uint8_t A = digitalRead(ENCODER_RIGHT_A);
+  uint8_t B = digitalRead(ENCODER_RIGHT_B);
+  uint8_t state = (A << 1) | B;
+  if((last_state == 0 && state == 1) || (last_state == 1 && state == 3) || (last_state == 3 && state == 2) || (last_state == 2 && state == 0)) {
+    RightTicks--;
+  } else if ((last_state == 0 && state == 2) || (last_state == 2 && state == 3) || (last_state == 3 && state == 1) || (last_state == 1 && state == 0)) {
+    RightTicks++;
+  }
+  last_state = state;
+}
+
+void SetupRotary() {
+  pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
+  pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), doRightEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_B), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_B), doRightEncoder, CHANGE);
+}
+
+void usbsetup() {
+  pinMode(PA_15, OUTPUT);  
+  digitalWrite(PA_15, HIGH);
+  delay(500); 
+
+  while (!msd.connect()) {
+    lcd.clear();
+    lcd.print("Connect USB drive");
+    delay(500);
+  }
+  
+  int err = usb.mount(&msd);
+  if (err != 0) {
+    lcd.clear();
+    lcd.print("Mount Err: ");
+    lcd.print(err);
+    while(1); // Stop if mounting failed completely
+  }
+}
+
+void ControlRotary() {
+  noInterrupts();
+  long current_left = LeftTicks;
+  long current_right = RightTicks;
+  interrupts();
+
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  const unsigned int interval = 500;
+
+  if (currentMillis - previousMillis >= interval) {
+    float delta_left = current_left - prev_left;
+    float delta_right = current_right - prev_right;
+    float AverageTickChange = (delta_left + delta_right) / 2;
+    
+    distanceTraveled += (AverageTickChange * DISTANCE_PER_TICK) / 1000.0;
+    
+    prev_left = current_left;
+    prev_right = current_right;
+
+    // Log data to file safely
+    if (f != NULL) {
+      fprintf(f, "%ld, %ld, %.2f, %.4f\n", current_left, current_right, AverageTickChange, distanceTraveled);
+      
+      // CRITICAL: Empty the RAM buffer and force an immediate physical save
+      fflush(f); 
+      fsync(fileno(f)); 
+    }
+
+    // Output to Serial Monitor
+    Serial.print(current_left);
+    Serial.print(",");
+    Serial.print(current_right);
+    Serial.print(",");
+    Serial.print(AverageTickChange);
+    Serial.print(",");
+    Serial.print(distanceTraveled);
+    Serial.println("M");
+
+    previousMillis = currentMillis;
+
+    // Output to LCD Screen
+    lcd.clear(); 
+    lcd.setCursor(0, 0);
+    lcd.print("Dist: ");
+    lcd.print(distanceTraveled);
+    lcd.print(" M");
+  }
+}
+
+void setup() {
+Serial.begin(115200); 
+  
+  lcd.init();                       
+  lcd.backlight();
+  lcd.print("Initializing...");
+
+  usbsetup(); 
+  
+  // Use "a+" (Append/Read) instead of "w". If the board restarts, it won't wipe the file.
+  f = fopen("/usb/log3.txt", "a+"); 
+  
+  if (f == NULL) {
+    lcd.clear();
+    lcd.print("File Open Fail!");
+    while(1); 
+  }
+  
+  // Check if the file is completely brand new before writing headers
+  fseek(f, 0, SEEK_END);
+  long fileSize = ftell(f);
+  
+  if (fileSize == 0) {
+    // File is empty, write the column headers
+    fprintf(f, "Left_Ticks,Right_Ticks,Tick_Delta,Distance_Meters\n");
+    
+    // CRITICAL: Force Mbed OS to physically push the text out of RAM onto the USB sectors
+    fflush(f); 
+    fsync(fileno(f)); 
+  }
+
+  SetupMotors();//same as last time
+  SetupRotary();
+  
+  lcd.clear();
+  lcd.print("System Ready");
+  delay(1000);
+}
+
+void loop() {
+  ControlMotors();
+  ControlRotary();
+}

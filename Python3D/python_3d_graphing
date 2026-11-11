@@ -1,0 +1,42 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+
+file_path = r"C:\Users\jvher\Downloads\log19.p"
+try:
+    df = pd.read_csv(
+        file_path,
+        header=None,
+        names=["X", "Y", "Z"],
+        skipinitialspace=True,
+    )
+except Exception as e:
+    print(f"Error reading file: {e}")
+    exit()
+
+x = df["X"]
+y = df["Y"]
+z = df["Z"]
+
+fig = plt.figure(figsize=(10, 7))
+ax = fig.add_subplot(111, projection="3d")
+
+#ax.plot(x, y, z, label="3D Trajectory", color="blue", linewidth=2)
+ax.scatter(x, y, z, color="red", s=10, alpha=0.5)
+
+# Add extra spaces as a manual "pad" workaround (avoids the labelpad bug)
+ax.set_xlabel("X Axis (m)", fontsize=14)
+ax.set_ylabel("Y Axis (m)   ", fontsize=14)  # trailing spaces push it out
+ax.set_zlabel("Z Axis (m)", fontsize=14)
+
+# Use fig.suptitle instead of ax.set_title to avoid the same bug
+fig.suptitle("3D Plot of X, Y, Z Coordinates", fontsize=16, y=0.95)
+
+# Tick number spacing (this one worked fine before, no labelpad involved)
+ax.tick_params(axis="both", labelsize=12, pad=8)
+
+ax.legend()
+
+# Manually add margin around the plot instead of tight_layout
+fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.1)
+
+plt.show()

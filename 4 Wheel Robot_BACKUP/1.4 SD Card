@@ -1,0 +1,46 @@
+//C_SD_Card.ino
+void SetupSD()
+{
+  pinMode(CS, OUTPUT);
+  if (!SD.begin(CS)) 
+  {
+    Serial.println("SD Card - It's a broke");  //SD card not in
+    while(1); //While true
+  }
+}
+
+//Made to work with all the other code
+
+void ControlSD()
+{
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 2000;
+
+  if (currentMillis - previousMillis >= interval)
+ {
+    myFile = SD.open("Sensors.txt", FILE_WRITE);
+    myFile.print("Temp:");
+    myFile.print(data.Temp);
+    myFile.print("\t");
+    myFile.print("Humidity:");
+    myFile.println(data.Humidity);
+    myFile.close();
+    previousMillis = currentMillis;
+    Serial.println("Printing data :p");
+  }
+  //Erase file data 
+  //Have to upload everytime U take out SD Card
+  if(Serial.available())
+  {
+    String user_input = Serial.readStringUntil('\n');
+    user_input.trim();
+    if(user_input == "Erase data" && SD.exists("Sensors.txt"))
+    {
+      SD.remove("Sensors.txt");
+      Serial.println("============");
+      Serial.println("File removed");
+      Serial.println("============");
+    }
+  }
+}

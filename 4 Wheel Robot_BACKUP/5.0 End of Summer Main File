@@ -1,0 +1,74 @@
+#include <Adafruit_Sensor.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
+#include <Arduino.h>
+#include <Arduino_USBHostMbed5.h>
+#include <DigitalOut.h>
+#include <FATFileSystem.h>
+// #include <mbed.h>
+
+mbed::PwmOut servoPin(digitalPinToPinName(D6)); //Servo steering 
+
+//For Quat to Degrees
+struct Quat
+{
+  double w, x, y, z;
+};
+Quat reference_orientation;
+Quat current_orientation;
+bool isReferenceSet = false;
+
+// Dead Reckoning 
+double pos_x = 0.0; // East and West 
+double pos_y = 0.0; // North and South
+double pos_z = 0.0;
+double ref_yaw = 0.0; // Yaw at startup (In degrees)
+double ref_pitch = 0.0; 
+bool yawRefSet = false;
+
+USBHostMSD msd;
+mbed::FATFileSystem usb("usb");
+FILE *f = NULL; 
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Waiting");
+  delay(1000);
+  Serial.println("Done");
+  bno.begin();
+  delay(1000);
+  BNO_055INIT();
+  //BNO_CALIB();
+  SAVE_CALIB_DATA();
+  GET_CALIB_DATA();
+  Serial.println("IMU Successful");
+  SetupMotors();
+  Serial.println("MOTOR Successful");
+  SetupRotary(); 
+  Serial.println("ROTARY ENCODER Successful");
+  usbsetup(); 
+  
+  // Use "a+" (Append/Read) instead of "w". If the board restarts, it won't wipe the file.
+  f = fopen("/usb/log50.p", "a+"); 
+  
+  // Check if the file is completely brand new before writing headers
+  fseek(f, 0, SEEK_END);
+  long fileSize = ftell(f);
+  
+  if (fileSize == 0) {
+    // CRITICAL: Force Mbed OS to physically push the text out of RAM onto the USB sectors
+    fflush(f); 
+    fsync(fileno(f)); 
+  }
+  Serial.println("USB Successful");
+}
+
+void loop() {
+  ControlMotors();
+  imu::Quaternion quat = bno.getQuat();
+  // ControlIMU(quat);
+  float Dmeters = GetEncoderData();
+  ControlQuat(quat, Dmeters); //Delta_meters 
+}

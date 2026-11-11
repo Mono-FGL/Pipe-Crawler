@@ -1,0 +1,155 @@
+float MotorSpeed = 35;
+// 0 = straight, 1 = Left, 2 = Right
+// Able to reset MotorSpeed or left and right
+static int LastTurn = 0;
+
+void SetupMotors()
+{
+  // Pins for motor speed
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  // Pins for HIGH or LOW
+  pinMode(22, OUTPUT);
+  pinMode(24, OUTPUT);
+  pinMode(26, OUTPUT);
+  pinMode(28, OUTPUT);
+}
+
+void ControlMotors()
+{
+  float x = analogRead(A2) - 237;  
+  float y = analogRead(A1) - 272;
+  Serial.print("Raw X: "); Serial.print(analogRead(A2));
+  Serial.print(" | Raw Y: "); Serial.println(analogRead(A1));
+
+  //State 1: GoingFoward
+  if(y > 600)
+  {
+    digitalWrite(22, HIGH);
+    digitalWrite(24, HIGH);
+    digitalWrite(26, HIGH);
+    digitalWrite(28, HIGH);
+    //Turning Left
+    if(x < 300)
+    {
+      if(LastTurn != 1)
+      {
+        MotorSpeed = 25;
+        LastTurn = 1;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(22, LOW);
+      digitalWrite(26, LOW);
+      analogWrite(2, AdjustedSpeed);
+      analogWrite(4, AdjustedSpeed);
+      analogWrite(3, 150);
+      analogWrite(5, 150);
+    }
+    //Turning Right
+    else if(x > 650)
+    {
+      if(LastTurn != 2)
+      {
+        MotorSpeed = 35;
+        LastTurn = 2;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(24, LOW);
+      digitalWrite(28, LOW);
+      analogWrite(3, AdjustedSpeed);
+      analogWrite(5, AdjustedSpeed);
+      analogWrite(2, 150);
+      analogWrite(4, 150);
+    }
+    //Straight Foward
+    else
+    {
+      MotorSpeed = 35;
+      LastTurn = 0;
+      analogWrite(2, 130);
+      analogWrite(4, 130);
+      analogWrite(3, 130);
+      analogWrite(5, 130);
+    }
+  }
+  //State 2: GoingBacwards
+  else if(y < 300)
+  {
+    digitalWrite(22, LOW);
+    digitalWrite(24, LOW);
+    digitalWrite(26, LOW);
+    digitalWrite(28, LOW);
+    //Turning Left While Reversing
+    if(x < 300)
+    {
+      if(LastTurn != 1)
+      {
+        MotorSpeed = 35;
+        LastTurn = 1;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(22, HIGH);
+      digitalWrite(26, HIGH);
+      analogWrite(2, AdjustedSpeed);
+      analogWrite(4, AdjustedSpeed);
+      analogWrite(3, 150);
+      analogWrite(5, 150);
+    }
+    //Turning Right While Reversing
+    else if(x > 650)
+    {
+      if(LastTurn != 2)
+      {
+        MotorSpeed = 35;
+        LastTurn = 2;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(24, HIGH);
+      digitalWrite(28, HIGH);
+      analogWrite(3, AdjustedSpeed);
+      analogWrite(5, AdjustedSpeed);
+      analogWrite(2, 150);
+      analogWrite(4, 150);
+    }
+
+    //Straight Backwards
+    else
+    {
+      MotorSpeed = 35;
+      LastTurn = 0;
+      analogWrite(2, 130);
+      analogWrite(4, 130);
+      analogWrite(3, 130);
+      analogWrite(5, 130);
+    }
+  }
+  //State 3: Staying Still
+  else
+  {
+    MotorSpeed = 35;
+    LastTurn = 0;
+    analogWrite(2, 0);
+    analogWrite(3, 0);
+    analogWrite(4, 0);
+    analogWrite(5, 0);
+  }
+}
+
+float Turning()
+{
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 100;
+
+  if(currentMillis - previousMillis >= interval)
+  {
+    previousMillis = currentMillis;
+    if(MotorSpeed <= 85)
+    {
+      MotorSpeed += 5;
+    }
+  }
+  return MotorSpeed;
+}

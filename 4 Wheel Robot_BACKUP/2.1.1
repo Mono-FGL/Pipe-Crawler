@@ -1,0 +1,81 @@
+//ts bunsss
+// RTC & LCD Configuration
+#include "RTClib.h"
+#include <Wire.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
+
+RTC_DS3231 rtc;
+hd44780_I2Cexp lcd; // Auto-detects backpack pinout and I2C address
+
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+  
+  // Initialize the DHT sensor
+  dht.begin();
+  
+  // Initialize LCD and show boot message
+  lcd.begin(16, 2);
+  lcd.clear();
+  lcd.setCursor(1, 0);
+  lcd.print("Starting Clock");
+  delay(3000);
+  lcd.clear();
+  
+  // Initialize RTC
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1); // Halt if RTC is missing
+  }
+  
+  // Adjust RTC time if necessary (Updates clock time to match compile timestamp)
+  rtc.adjust(DateTime(2026, 4, 21, 16, 26, 55));
+}
+
+
+void ControlLCD() {
+
+
+  // 1. ALWAYS SHOW DATE ON THE TOP ROW
+  lcd.setCursor(0, 0); 
+  show(mo);
+  lcd.print("/");
+  show(da);
+  lcd.print("/");
+  show(yr);
+
+
+  // 3. RENDER THE BOTTOM ROW BASED ON THE TOGGLE STATE
+
+    // Show Time format: "    16:26:55"
+    lcd.setCursor(0, 1);
+    show(hr);
+    lcd.print(":");
+    show(mn);
+    lcd.print(":");
+    show(sc);
+
+    // Show Weather format: "T: 25C    H: 55%"
+    lcd.setCursor(11, 0);
+    lcd.print("T:");
+    lcd.print((int)globalTemperature); // (int) drops the decimal points to fit nicely
+    lcd.print("C");
+    
+    lcd.setCursor(11, 1);
+    lcd.print("H:");
+    lcd.print((int)globalHumidity);
+    lcd.print("%");
+  }
+
+
+// Helper function to add leading zeros for numbers less than 10
+void show(int input) {
+  if (input < 10) {
+    lcd.print("0");
+    lcd.print(input);
+  } else {
+    lcd.print(input);
+  }
+}

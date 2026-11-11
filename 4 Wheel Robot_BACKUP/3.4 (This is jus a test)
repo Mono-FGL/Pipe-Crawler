@@ -1,0 +1,597 @@
+#include <Adafruit_Sensor.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
+#include <Arduino.h>
+#include <Arduino_USBHostMbed5.h>
+#include <DigitalOut.h>
+#include <FATFileSystem.h>
+#include <mbed.h>
+
+mbed::PwmOut servoPin(digitalPinToPinName(D6)); //Servo steering 
+
+//For Quat to Degrees
+struct Quat
+{
+  double w, x, y, z;
+};
+Quat reference_orientation;
+Quat current_orientation;
+bool isReferenceSet = false;
+
+// Dead Reckoning 
+double pos_x = 0.0; // East and West 
+double pos_y = 0.0; // North and South
+double pos_z = 0.0;
+double ref_yaw = 0.0; // Yaw at startup (In degrees)
+double ref_pitch = 0.0; 
+bool yawRefSet = false;
+
+USBHostMSD msd;
+mbed::FATFileSystem usb("usb");
+FILE *f = NULL; 
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Waiting");
+  delay(1000);
+  Serial.println("Done");
+  bno.begin();
+  BNO_055INIT();
+  // BNO_CALIB();
+  GET_CALIB_DATA();
+  SAVE_CALIB_DATA();
+  Serial.println("IMU Successful");
+  SetupMotors();
+  Serial.println("MOTOR Successful");
+  SetupRotary();
+  Serial.println("ROTARY ENCODER Successful");
+  usbsetup(); 
+  
+  // Use "a+" (Append/Read) instead of "w". If the board restarts, it won't wipe the file.
+  f = fopen("/usb/log38.p", "a+"); 
+  
+  // Check if the file is completely brand new before writing headers
+  fseek(f, 0, SEEK_END);
+  long fileSize = ftell(f);
+  
+  if (fileSize == 0) {
+    // CRITICAL: Force Mbed OS to physically push the text out of RAM onto the USB sectors
+    fflush(f); 
+    fsync(fileno(f)); 
+  }
+  Serial.println("USB Successful");
+}
+
+void loop() {
+  // ControlMotors();
+  imu::Quaternion quat = bno.getQuat();
+  // ControlIMU(quat);
+  float Dmeters = GetEncoderData();
+  ControlQuat(quat, Dmeters); //Delta_meters 
+}
+
+// This gives how far drifted from starting point (No direction just magnitude)
+// Good for diagnostics/sensor fusion
+// Foward Declaration(Function Prototypes)
+Quat normalize(Quat q);
+double quat_dot(Quat q1, Quat q2);
+double angular_distance(Quat q_ref, Quat q_curr);
+double getYaw(imu::Quaternion q);
+extern float Distance;
+
+// Converts quat to Euler angles
+double getYaw(imu::Quaternion q)
+{
+  //Sine of yaw times cosine of pitch = that
+  // q.w() instead of q.w because it has to go fetch the value
+  double siny_cosp = 2.0 * (q.w() * q.z() + q.x() * q.y()); // Calculates Left/Right positioning on flat grid
+  // Cosine of yaw times cosine of pitch = that
+  double cosy_cosp = 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()); // Calculates Foward and Back positioning on flat grid
+  // atan2 is arctan(atan), the 2 checks both numbers and their signs for a 4 quadrant map
+  // arctan reverts distance on flat grid into steering angle (Raw spatial coordinates into a single usable angle ex: 45 degrees)
+  return atan2(siny_cosp, cosy_cosp); //Converts to Radian 
+}
+
+double getPitch(imu::Quaternion q)
+{
+  // sin pitch
+  double sinp = 2.0 * (q.w() * q.y() - q.z() * q.x());
+  // Keep withing radian 
+  if (sinp >= 1.0) 
+    return PI / 2.0;
+  if (sinp <= -1.0) 
+    return -PI / 2.0;
+  return asin(sinp); // Arcsine turns into angle
+}
+
+// Take data type imu::Quaternion named quat and deltaA_meters from rotary encoder
+void ControlQuat(imu::Quaternion quat, float delta_meters) {
+  //Pack into custom Quat structure (current_orientation is under Quat type)
+  current_orientation.w = quat.w();
+  current_orientation.x = quat.x();
+  current_orientation.y = quat.y();
+  current_orientation.z = quat.z();
+
+  //Lock reference orientation and yaw on first run
+  if (!isReferenceSet) {
+    reference_orientation = current_orientation;
+    ref_yaw = getYaw(quat);
+    ref_pitch = getPitch(quat);
+    isReferenceSet = true;
+    Serial.println("Reference heading locked");
+  }
+
+
+  double raw_yaw = getYaw(quat); //Radian
+  double raw_pitch = getPitch(quat);
+
+  double real_yaw = raw_yaw - ref_yaw;  // Find angle of Yaw difference from starting point
+  double real_pitch = raw_pitch - ref_pitch;
+
+  // Correct radian wrap-around check (-PI -> +PI)
+  while(real_yaw > PI)
+    real_yaw -= 2.0 * PI;
+  while(real_yaw < -PI)
+    real_yaw += 2.0 * PI;
+
+  // Dead Reckoning (In radians)
+  pos_x += delta_meters * cos(real_pitch) * cos(real_yaw);
+  pos_y += delta_meters * cos(real_pitch) * sin(real_yaw);
+  pos_z += delta_meters * sin(real_pitch);
+
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= 300) {
+    previousMillis = currentMillis;
+    // Serial.print("Yaw: ");
+    // Serial.print(real_yaw, 2);
+    // Serial.print(" X: ");
+    Serial.print(pos_x, 3);
+    Serial.print("\t");
+    Serial.print(pos_y, 3);
+    Serial.print("\t");
+    Serial.println(pos_z, 3);
+    // Serial.print(" Dist: ");
+    // Serial.print(Distance, 3);
+    // Serial.print(" Drift3D: ");
+    // Serial.println(drift_deg, 2);
+
+    // Log data to file safely
+    if (f != NULL) {
+      fprintf(f, "%.4f, %.4f, %.4f\n", pos_x, pos_y, pos_z);
+      
+      // CRITICAL: Empty the RAM buffer and force an immediate physical save
+      fflush(f); 
+      fsync(fileno(f)); 
+    }
+  }
+}
+
+float MotorSpeed = 35;
+// 0 = straight, 1 = Left, 2 = Right
+// Able to reset MotorSpeed or left and right
+static int LastTurn = 0;
+
+void SetupMotors()
+{
+  // Pins for motor speed
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  // Pins for HIGH or LOW
+  pinMode(22, OUTPUT);
+  pinMode(24, OUTPUT);
+  pinMode(26, OUTPUT);
+  pinMode(28, OUTPUT);
+}
+
+void ControlMotors()
+{
+  float x = analogRead(A2) - 237;  
+  float y = analogRead(A1) - 272;
+  Serial.print("Raw X: "); Serial.print(analogRead(A2));
+  Serial.print(" | Raw Y: "); Serial.println(analogRead(A1));
+
+  //State 1: GoingFoward
+  if(y > 600)
+  {
+    digitalWrite(22, HIGH);
+    digitalWrite(24, HIGH);
+    digitalWrite(26, HIGH);
+    digitalWrite(28, HIGH);
+    //Turning Left
+    if(x < 300)
+    {
+      if(LastTurn != 1)
+      {
+        MotorSpeed = 25;
+        LastTurn = 1;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(22, LOW);
+      digitalWrite(26, LOW);
+      analogWrite(2, AdjustedSpeed);
+      analogWrite(4, AdjustedSpeed);
+      analogWrite(3, 150);
+      analogWrite(5, 150);
+    }
+    //Turning Right
+    else if(x > 650)
+    {
+      if(LastTurn != 2)
+      {
+        MotorSpeed = 35;
+        LastTurn = 2;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(24, LOW);
+      digitalWrite(28, LOW);
+      analogWrite(3, AdjustedSpeed);
+      analogWrite(5, AdjustedSpeed);
+      analogWrite(2, 150);
+      analogWrite(4, 150);
+    }
+    //Straight Foward
+    else
+    {
+      MotorSpeed = 35;
+      LastTurn = 0;
+      analogWrite(2, 130);
+      analogWrite(4, 130);
+      analogWrite(3, 130);
+      analogWrite(5, 130);
+    }
+  }
+  //State 2: GoingBacwards
+  else if(y < 300)
+  {
+    digitalWrite(22, LOW);
+    digitalWrite(24, LOW);
+    digitalWrite(26, LOW);
+    digitalWrite(28, LOW);
+    //Turning Left While Reversing
+    if(x < 300)
+    {
+      if(LastTurn != 1)
+      {
+        MotorSpeed = 35;
+        LastTurn = 1;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(22, HIGH);
+      digitalWrite(26, HIGH);
+      analogWrite(2, AdjustedSpeed);
+      analogWrite(4, AdjustedSpeed);
+      analogWrite(3, 150);
+      analogWrite(5, 150);
+    }
+    //Turning Right While Reversing
+    else if(x > 650)
+    {
+      if(LastTurn != 2)
+      {
+        MotorSpeed = 35;
+        LastTurn = 2;
+      }
+      float AdjustedSpeed = Turning();
+      digitalWrite(24, HIGH);
+      digitalWrite(28, HIGH);
+      analogWrite(3, AdjustedSpeed);
+      analogWrite(5, AdjustedSpeed);
+      analogWrite(2, 150);
+      analogWrite(4, 150);
+    }
+
+    //Straight Backwards
+    else
+    {
+      MotorSpeed = 35;
+      LastTurn = 0;
+      analogWrite(2, 130);
+      analogWrite(4, 130);
+      analogWrite(3, 130);
+      analogWrite(5, 130);
+    }
+  }
+  //State 3: Staying Still
+  else
+  {
+    MotorSpeed = 35;
+    LastTurn = 0;
+    analogWrite(2, 0);
+    analogWrite(3, 0);
+    analogWrite(4, 0);
+    analogWrite(5, 0);
+  }
+}
+
+float Turning()
+{
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 100;
+
+  if(currentMillis - previousMillis >= interval)
+  {
+    previousMillis = currentMillis;
+    if(MotorSpeed <= 85)
+    {
+      MotorSpeed += 5;
+    }
+  }
+  return MotorSpeed;
+}
+
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
+#include <KVStore.h>
+#include <kvstore_global_api.h>
+
+#define KEY_BNO_ID "/kv/bno_id" // Puts KEY_BNO_ID into the drawer named /kv/bno_id
+#define KEY_BNO_CALIB "/kv/bno_calib" // puts KEY_BNO_CALIB into drawer named /kv/bno_calib
+
+Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
+
+long bnoID; // ID for chip
+bool foundCalib = false; 
+/* 
+  Stores and saves raw calibration data (offsets and radius)
+   Creates CalibrationData as bno055_offsets_t
+*/
+adafruit_bno055_offsets_t CalibrationData;
+
+/* Initializes and starts up BNO */
+void BNO_055INIT()
+{
+// Check if BNO is present 
+if (!bno.begin())
+  {
+    Serial.println("No BNO detected, check wiring or I2C adress");
+    while(1);
+  }
+  bno.setMode(OPERATION_MODE_NDOF); // 9 Degrees of freedom
+  bno.setExtCrystalUse(true); // Use external crystal more accurate
+}
+
+/* Calibrate BNO */
+void BNO_CALIB()
+{
+  uint8_t system = 0, gyro = 0, accel = 0, mag = 0;
+  while(system < 3 || gyro < 3 || accel < 3 || mag < 3) // ! skips scope
+  { 
+  bno.getCalibration(&system, &gyro, &accel, &mag);
+  Serial.print("Calibration: Sys="); Serial.print(system);
+  Serial.print(" Gyro="); Serial.print(gyro);
+  Serial.print(" Accel="); Serial.print(accel);
+  Serial.print(" Mag="); Serial.println(mag);
+  delay(100);
+  }
+  Serial.println("Calibration Complete");
+  for(int i = 0; i < 3; i++)
+  {
+    Serial.println(i);
+    delay(1000); 
+  }
+}
+/* Fetch ID and if it matches then fetches the Calibration Data */
+void GET_CALIB_DATA()
+{
+  // 
+  sensor_t sensor; 
+  bno.getSensor(&sensor); // Get sensor hardware info (including ID)
+  size_t actual_size = 0; // Keep track of size 
+
+  /* 
+    KEY_BNO_ID    - Look up kv/bno_ID
+     &bnoId        - Where to write the retieved value (output buffer)
+     sizeof(bnoID) - Max number of bytes buffer can hold 
+     &actual_size  - KVStore writes back how many bytes it actually found 
+  */
+  int result = kv_get(KEY_BNO_ID, &bnoID, sizeof(bnoID), &actual_size);
+
+  // Result buffer equals 0 or ID did not match --> recalibrate IMU
+  if(result < 0 || bnoID != sensor.sensor_id)
+  {
+    Serial.println("No matching Calibration data found in KV store");
+    BNO_CALIB();
+  }
+  else
+  {
+    // Fetch the calibration data  
+    result = kv_get(KEY_BNO_CALIB, &CalibrationData, sizeof(CalibrationData), &actual_size);
+    // result returns 0 if successful 
+    if(result == 0 && actual_size == sizeof(CalibrationData))
+    {
+      bno.setSensorOffsets(CalibrationData);
+      foundCalib = true;
+      Serial.println("Calibration data loaded from KV store.");
+    }
+    else
+    {
+      Serial.println("KV Calibration data corrupted or missing size mismatch");
+      BNO_CALIB();
+    }
+  }
+}
+  
+/* 
+  Retrieve Calibration Data --> get space to where to put in --> Write Calibration Data into space  
+*/
+void SAVE_CALIB_DATA()
+{
+  sensor_t sensor;
+  bno.getSensor(&sensor);
+  bnoID = sensor.sensor_id;
+  // Get sensor
+  bno.getSensorOffsets(CalibrationData);
+  /*
+    KEY_BNO_ID     - Which slot to Write into
+     &bnoId        - What bytes to copy in
+     sizeof(bnoID) - How many bytes to write
+     0             - 0 = default(No special flags)
+  */
+  int result1 = kv_set(KEY_BNO_ID, &bnoID, sizeof(bnoID), 0);
+  int result2 = kv_set(KEY_BNO_CALIB, &CalibrationData, sizeof(CalibrationData), 0);
+  if(result1 == 0 && result2 == 0)
+  {
+    Serial.println("Calibration saved to KV store");
+  }
+  else
+  {
+    Serial.println("Failed to write Calibration into KV store");
+  }
+}
+
+/* 
+Rotary Encoders are read via interupts. Uses quadature encoder and waits for hardware interrupts.
+Uses state machine to determine if moving foward or backwards for both Left and Right sides  
+*/
+
+// Left side
+// Hardware Pins Blue - A, White - B
+const int ENCODER_LEFT_A = 10;
+const int ENCODER_LEFT_B = 11;
+volatile long LeftTicks = 0;
+
+// Right side
+// Hardware Pins Blue - 12, White - 13
+const int ENCODER_RIGHT_A = 12;
+const int ENCODER_RIGHT_B = 13;
+volatile long RightTicks = 0;
+
+/*
+Large robot: (pi x diameter(mm)) / 537.6(TPR) 
+Small robot: (pi x 188.495559mm) / 484(TPR) = 1.22350467642 mm/TPR
+*/
+const float DISTANCE_PER_TICK = 0.92331034089;  // (mm/TPR)
+float Distance = 0;
+
+long prev_left = 0;
+long prev_right = 0;
+
+//Only reads one wire change at a time 
+void doLeftEncoder() {
+  static uint8_t last_state = 0; //Need to keep track of this
+  uint8_t A = digitalRead(ENCODER_LEFT_A);
+  uint8_t B = digitalRead(ENCODER_LEFT_B);
+  uint8_t state = (A << 1) | B; //Smash the 2 bits data into 1 bit
+  // Moving Fowards so bits going left <<
+  if((last_state == 0 && state == 1) || //OR
+     (last_state == 1 && state == 3) ||
+     (last_state == 3 && state == 2) ||
+     (last_state == 2 && state == 0))
+  {
+    LeftTicks++;
+  }
+  else if// Moving Backwards so reverse bits going to right >>
+    ((last_state == 0 && state == 2) || //OR
+     (last_state == 2 && state == 3) ||
+     (last_state == 3 && state == 1) ||
+     (last_state == 1 && state == 0 ))
+  {
+    LeftTicks--;
+  }
+  last_state = state;
+}
+
+void doRightEncoder() {
+  static uint8_t last_state = 0; //Need to keep track of this
+  uint8_t A = digitalRead(ENCODER_RIGHT_A);
+  uint8_t B = digitalRead(ENCODER_RIGHT_B);
+  uint8_t state = (A << 1) | B; //Smash the 2 bits data into 1 bit
+  // Moving Fowards so bits going left <<
+  if((last_state == 0 && state == 1) || //OR
+     (last_state == 1 && state == 3) ||
+     (last_state == 3 && state == 2) ||
+     (last_state == 2 && state == 0))
+  {
+    RightTicks--;
+  }
+  else if// Moving Backwards so reverse bits going to right >>
+    ((last_state == 0 && state == 2) || //OR
+     (last_state == 2 && state == 3) ||
+     (last_state == 3 && state == 1) ||
+     (last_state == 1 && state == 0))
+  {
+    RightTicks++;
+  }
+  last_state = state;
+}
+
+void SetupRotary() {
+  pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
+  pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
+
+  // Trigger interrupt when Signal A changes from LOW to HIGH (Quadrature)
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), doRightEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_B), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_B), doRightEncoder, CHANGE);
+}
+
+float GetEncoderData()
+{
+  // Cant be intterupted, 32 bits but CPU only reads 8 bits at time
+  noInterrupts();
+  long current_left = LeftTicks;
+  long current_right = RightTicks;
+  interrupts();
+
+    /* Find the average tick change by finding the difference of total ticks
+  minus previous total ticks. Then multiply by total distance per tick (fixed number)
+  */
+  float delta_left = current_left - prev_left;
+  float delta_right = current_right - prev_right;
+  float AverageTickChange = (delta_left + delta_right) / 2;
+  float delta_meters = (AverageTickChange * DISTANCE_PER_TICK) / 1000; 
+  
+  prev_left = current_left;
+  prev_right = current_right;
+  Distance += delta_meters;
+
+  //Millis for only Serial.print
+  // static unsigned long previousMillis = 0;
+  // unsigned long currentMillis = millis();
+  // const unsigned int interval = 300;
+  // if (currentMillis - previousMillis >= interval) {
+
+  // // Serial.print(current_left);
+  // // Serial.print("\t");
+  // // Serial.print(current_right);
+  // // Serial.print("\t");
+  // // Serial.print("Tick Change: ");
+  // // Serial.print(AverageTickChange);
+  // // Serial.print(",");
+  // Serial.print("Distance: ");
+  // Serial.print(Distance);
+  // Serial.println("M");
+  // previousMillis = currentMillis;
+  // }
+
+  return delta_meters; //How far moved from last point
+}
+
+void usbsetup() {
+  pinMode(PA_15, OUTPUT);  
+  digitalWrite(PA_15, HIGH);
+  delay(500); 
+
+  while (!msd.connect()) {
+    Serial.println("Connect USB stick");
+    delay(500);
+  }
+  
+  int err = usb.mount(&msd);
+  if (err != 0) {
+
+    while(1); // Stop if mounting failed completely
+  }
+}

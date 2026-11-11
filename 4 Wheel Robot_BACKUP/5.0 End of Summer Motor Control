@@ -1,0 +1,133 @@
+float Servo = 1440;
+// 0 = straight, 1 = Left, 2 = Right
+// Able to reset MotorSpeed or left and right
+static int LastTurn = 0;
+void SetupMotors() {
+  // Pins for motor speed
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  // Pins for HIGH or LOW
+  pinMode(22, OUTPUT);
+  pinMode(24, OUTPUT);
+  servoPin.period_ms(20);        // Servo pin
+  servoPin.pulsewidth_us(1440);  //Centers it
+}
+
+void ControlMotors() {
+  float x = analogRead(A2) - 238;
+  float y = analogRead(A1) - 230;
+  // Serial.print(" X: "); Serial.print(x);
+  // Serial.print(" |  Y: "); Serial.println(y);
+
+  if (x < 400) {
+    digitalWrite(22, LOW);
+    digitalWrite(24, LOW);
+    if (y < 250)  // Turning Left
+    {
+      if (LastTurn != 1) {
+        Servo = 1390;
+        LastTurn = 1;
+      }
+      servoPin.pulsewidth_us(TurningLeft());
+      analogWrite(2, 120);
+      analogWrite(3, 120);
+    } else if (y > 650)  // Turning Right
+    {
+      if (LastTurn != 2) {
+        Servo = 1490;
+        LastTurn = 2;
+      }
+      servoPin.pulsewidth_us(TurningRight());
+      analogWrite(2, 120);
+      analogWrite(3, 120);
+    } else {
+      Servo = 1435;
+      LastTurn = 0;
+      analogWrite(2, 150);
+      analogWrite(3, 150);
+      servoPin.pulsewidth_us(1435);
+    }
+  }
+  // Going Backwards
+  else if (x > 600) {
+    digitalWrite(22, HIGH);
+    digitalWrite(24, HIGH);
+    if (y < 250)  // Turning Left
+    {
+      if (LastTurn != 1) {
+        Servo = 1390;
+        LastTurn = 1;
+      }
+      servoPin.pulsewidth_us(TurningLeft());
+      analogWrite(2, 120);
+      analogWrite(3, 120);
+    } else if (y > 650)  // Turning right
+    {
+      if (LastTurn != 2) {
+        Servo = 1490;
+        LastTurn = 2;
+      }
+      servoPin.pulsewidth_us(TurningRight());
+      analogWrite(2, 120);
+      analogWrite(3, 120);
+    } else {
+      Servo = 1435;
+      LastTurn = 0;
+      analogWrite(2, 150);
+      analogWrite(3, 150);
+      servoPin.pulsewidth_us(1435);
+    }
+  } else {
+    Servo = 1435;
+    LastTurn = 0;
+    analogWrite(2, 0);
+    analogWrite(3, 0);
+    servoPin.pulsewidth_us(1435);
+  }
+}
+
+float TurningLeft() {
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 100;
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    if (Servo > 1000) {
+      Servo -= 50;
+    }
+  }
+  return Servo;
+}
+
+float TurningRight() {
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 100;
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    if (Servo < 2000) {
+      Servo += 50;
+    }
+  }
+  return Servo;
+}
+
+float Centering() {
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 100;
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    if (Servo < 1435) {
+      Servo += 50;
+      if (Servo > 1435) Servo = 1435;  // don't overshoot
+    } else if (Servo > 1435) {
+      Servo -= 50;
+      if (Servo < 1435) Servo = 1435;  // don't overshoot
+    }
+  }
+  return Servo;
+}

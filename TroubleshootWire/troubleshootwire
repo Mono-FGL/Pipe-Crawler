@@ -1,0 +1,20 @@
+void setup() {
+pinMode(2, OUTPUT);
+pinMode(3, OUTPUT);
+pinMode(24, OUTPUT);
+pinMode(22, OUTPUT);
+Serial.begin(9600);
+}
+
+void loop() {
+  digitalWrite(22, HIGH);
+  digitalWrite(24, HIGH);
+  analogWrite(2, 100);
+  analogWrite(3, 100);
+  delay(1000);
+  digitalWrite(22, LOW);
+  digitalWrite(24, LOW);
+  analogWrite(2, 100);
+  analogWrite(3, 100);
+  delay(1000);
+}

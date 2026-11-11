@@ -1,0 +1,116 @@
+// Left side
+// Hardware Pins Blue - A, White - B
+const int ENCODER_LEFT_A = 10;
+const int ENCODER_LEFT_B = 11;
+volatile long LeftTicks = 0;
+
+// Right side
+// Hardware Pins Blue - 12, White - 13
+const int ENCODER_RIGHT_A = 12;
+const int ENCODER_RIGHT_B = 13;
+volatile long RightTicks = 0;
+
+// mm per tick (471.24 / 537.6) or (pi x diameter(mm) / total ticks per revolution)
+const float DISTANCE_PER_TICK = 0.8765625;  // (mm/TPR)
+float distanceTraveled = 0;
+
+long prev_left = 0;
+long prev_right = 0;
+
+//Only reads one wire change at a time 
+void doLeftEncoder() {
+  static uint8_t last_state = 0; //Need to keep track of this
+  uint8_t A = digitalRead(ENCODER_LEFT_A);
+  uint8_t B = digitalRead(ENCODER_LEFT_B);
+  uint8_t state = (A << 1) | B; //Smash the 2 bits data into 1 bit
+  // Moving Fowards so bits going left <<
+  if((last_state == 0 && state == 1) || //OR
+     (last_state == 1 && state == 3) ||
+     (last_state == 3 && state == 2) ||
+     (last_state == 2 && state == 0))
+  {
+    LeftTicks++;
+  }
+  else if// Moving Backwards so reverse bits going to right >>
+    ((last_state == 0 && state == 2) || //OR
+     (last_state == 2 && state == 3) ||
+     (last_state == 3 && state == 1) ||
+     (last_state == 1 && state == 0 ))
+  {
+    LeftTicks--;
+  }
+  last_state = state;
+}
+
+void doRightEncoder() {
+  static uint8_t last_state = 0; //Need to keep track of this
+  uint8_t A = digitalRead(ENCODER_RIGHT_A);
+  uint8_t B = digitalRead(ENCODER_RIGHT_B);
+  uint8_t state = (A << 1) | B; //Smash the 2 bits data into 1 bit
+  // Moving Fowards so bits going left <<
+  if((last_state == 0 && state == 1) || //OR
+     (last_state == 1 && state == 3) ||
+     (last_state == 3 && state == 2) ||
+     (last_state == 2 && state == 0))
+  {
+    RightTicks++;
+  }
+  else if// Moving Backwards so reverse bits going to right >>
+    ((last_state == 0 && state == 2) || //OR
+     (last_state == 2 && state == 3) ||
+     (last_state == 3 && state == 1) ||
+     (last_state == 1 && state == 0))
+  {
+    RightTicks--;
+  }
+  last_state = state;
+}
+
+void SetupRotary() {
+  pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
+  pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
+
+  // Trigger interrupt when Signal A changes from LOW to HIGH (Quadrature)
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), doRightEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_B), doLeftEncoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_B), doRightEncoder, CHANGE);
+}
+
+void ControlRotary() {
+  // Cant be intterupted, 32 bits but CPU only reads 8 bits at time
+  noInterrupts();
+  long current_left = LeftTicks;
+  long current_right = RightTicks;
+  interrupts();
+
+  //Millis for only Serial.print
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  const unsigned int interval = 500;
+  if (currentMillis - previousMillis >= interval) {
+  
+    /* Find the average tick change by finding the difference of total ticks
+  minus previous total ticks. Then multiply by total distance per tick (fixed number)
+  */
+  float delta_left = current_left - prev_left;
+  float delta_right = current_right - prev_right;
+  float AverageTickChange = (delta_left + delta_right) / 2;
+  distanceTraveled += (AverageTickChange * DISTANCE_PER_TICK) / 1000;
+  
+  prev_left = current_left;
+  prev_right = current_right;
+
+  Serial.print(current_left);
+  Serial.print("\t");
+  Serial.print(current_right);
+  Serial.print("\t");
+  Serial.print(AverageTickChange);
+  Serial.print(",");
+  Serial.print(distanceTraveled);
+  Serial.println("M");
+  previousMillis = currentMillis;
+  }
+}

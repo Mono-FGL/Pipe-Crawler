@@ -1,0 +1,240 @@
+/* 
+ - Finally doneeee, comments featuring .ino is the start of a new tab in arduino.
+ - Careful on DHT11 if pushed too far in it will report nan
+ - Battery must be on for DHT to work too
+ - Need to upload everytime u take out SD card
+*/
+//A_Main_Robot.ino
+#include <DHT.h>
+#include <Adafruit_Sensor.h>
+#include <SPI.h>
+#include <SD.h> 
+
+//DHT 
+DHT dht(7, DHT11); // (pin, DhtType)
+struct SensorsData
+  {
+    float Temp;
+    float Humidity;
+  };
+  SensorsData data;
+File myFile;
+
+const int CS = 10;
+
+void setup(){
+  Serial.begin(9600);
+  dht.begin();
+  SD.begin();
+  SetupDHT();
+  SetupSD();
+  analogReadResolution(10);
+  SetupMotors();
+}
+
+void loop(){
+  ControlMotors();
+  ControlDHT();
+  ControlSD();
+}
+
+//B_TempHumidSens.ino
+void SetupDHT()
+{
+  Serial.println("Begin Reading");
+}
+
+SensorsData ControlDHT()
+{
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 2000; 
+
+  if(currentMillis - previousMillis >= interval)
+  {
+    Serial.println();
+  
+    data.Temp = dht.readTemperature();
+    data.Humidity = dht.readHumidity();
+  
+    Serial.print(F("Temperature: "));
+    Serial.println(data.Temp);
+    Serial.print(F("Humidity: "));
+    Serial.println(data.Humidity);
+    previousMillis = currentMillis;
+    return data;
+  }
+}
+
+//C_SD_Card.ino
+void SetupSD()
+{
+  pinMode(CS, OUTPUT);
+  if (!SD.begin(CS)) 
+  {
+    Serial.println("SD Card - It's a broke");  //SD card not in
+    while(1); //While true
+  }
+}
+
+void ControlSD()
+{
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 2000;
+
+  if (currentMillis - previousMillis >= interval)
+ {
+    myFile = SD.open("Sensors.txt", FILE_WRITE);
+    myFile.print("Temp:");
+    myFile.print(data.Temp);
+    myFile.print("\t");
+    myFile.print("Humidity:");
+    myFile.println(data.Humidity);
+    myFile.close();
+    previousMillis = currentMillis;
+    Serial.println("Printing data :p");
+  }
+  //Erase file data 
+  //Have to upload everytime U take out SD Card
+  if(Serial.available())
+  {
+    String user_input = Serial.readStringUntil('\n');
+    user_input.trim();
+    if(user_input == "Erase data" && SD.exists("Sensors.txt"))
+    {
+      SD.remove("Sensors.txt");
+      Serial.println("============");
+      Serial.println("File removed");
+      Serial.println("============");
+    }
+  }
+}
+
+//D_MotorControl.ino
+void SetupMotors()
+{
+    // Pins for motor speed
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  // Pins for HIGH or LOW
+  pinMode(22, OUTPUT);
+  pinMode(24, OUTPUT);
+  pinMode(26, OUTPUT);
+  pinMode(28, OUTPUT);
+}
+
+void ControlMotors()
+{
+  float x = analogRead(A2) - 237;  
+  float y = analogRead(A1) - 272;
+
+  //State 1: GoingFoward
+  if(y > 600)
+  {
+    //Turning Left
+    if(x < 300)
+    {
+      analogWrite(3, 75);
+      analogWrite(5, 75);
+      analogWrite(2, 250);
+      analogWrite(4, 250);
+
+    digitalWrite(22, HIGH);
+    digitalWrite(24, LOW);
+    digitalWrite(26, HIGH);
+    digitalWrite(28, LOW);
+    }
+    //Turning Right
+    else if(x > 650)
+    {
+      analogWrite(2, 75);
+      analogWrite(4, 75);
+      analogWrite(3, 250);
+      analogWrite(5, 250);
+     
+      digitalWrite(22, LOW);
+      digitalWrite(24, HIGH);
+      digitalWrite(26, LOW);
+      digitalWrite(28, HIGH);
+    }
+    //Straight Foward
+    else
+    {
+      analogWrite(2, 200);
+      analogWrite(4, 200);
+      analogWrite(3, 200);
+      analogWrite(5, 200);
+
+      digitalWrite(22, HIGH);
+      digitalWrite(24, HIGH);
+      digitalWrite(26, HIGH);
+      digitalWrite(28, HIGH);
+    }
+  }
+  //State 2: GoingBacwards
+  else if(y < 300)
+  {
+    //Turning Left While Reversing
+    if(x < 300)
+    {
+      analogWrite(3, 75);
+      analogWrite(5, 75);
+      analogWrite(2, 250);
+      analogWrite(4, 250);
+
+      digitalWrite(22, HIGH);
+      digitalWrite(24, LOW);
+      digitalWrite(26, HIGH);
+      digitalWrite(28, LOW);
+    }
+    //Turning Right While Reversing
+    else if(x > 650)
+    {
+      analogWrite(2, 75);
+      analogWrite(4, 75);
+      analogWrite(3, 250);
+      analogWrite(5, 250);
+
+     digitalWrite(22, LOW);
+      digitalWrite(24, HIGH);
+      digitalWrite(26, LOW);
+      digitalWrite(28, HIGH);
+    }
+    //Straight Backwards
+    else
+    {
+      analogWrite(2, 200);
+      analogWrite(4, 200);
+      analogWrite(3, 200);
+      analogWrite(5, 200);
+
+      digitalWrite(22, LOW);
+      digitalWrite(24, LOW);
+      digitalWrite(26, LOW);
+      digitalWrite(28, LOW);
+    }
+  }
+  //State 3: Staying Still
+  else
+  {
+    analogWrite(2, 0);
+    analogWrite(3, 0);
+    analogWrite(4, 0);
+    analogWrite(5, 0);
+  }
+  //Non-blocking "delay"
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 500;
+
+  if(currentMillis - previousMillis >= interval)
+  {
+    previousMillis = currentMillis;
+    Serial.print(x);
+    Serial.print("\t");
+    Serial.println(y);
+  }
+}

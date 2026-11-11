@@ -1,0 +1,37 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 1. Load the data safely (fixes the KeyError)
+file_path = r"C:\Users\jvher\Downloads\log17.p"  # Update to your data file path if different
+try:
+    df = pd.read_csv(
+        file_path,
+        header=None,
+        names=["X", "Y", "Z"],
+        skipinitialspace=True,
+    )
+except Exception as e:
+    print(f"Error reading file: {e}")
+    exit()
+
+# 2. Extract your coordinates
+x = df["X"]
+y = df["Y"]
+z = df["Z"]
+
+# 3. Create the 2D plot (X vs Y)
+fig, ax = plt.subplots(figsize=(20, 7))
+
+ax.plot(x, y, label="Trajectory", color="blue", linewidth=2)
+ax.scatter(x, y, color="red", s=15, alpha=0.5)
+
+ax.set_xlabel("X Axis (m)", fontsize = 22)
+ax.set_ylabel("Y Axis (m)", fontsize = 22)
+ax.set_title("2D Plot of X vs Y Coordinates", fontsize = 25)
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+# Bigger tick numbers (the actual numbers along the axes)
+ax.tick_params(axis="both", labelsize=25)
+# 4. Display the window
+plt.show()

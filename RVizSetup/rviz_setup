@@ -1,0 +1,8 @@
+
+// Run in command 
+cd /d C:\Users\jvher\Downloads\ros2-lyrical-2026-08-07-windows-AMD64\ros2-windows
+pixi shell
+call local_setup.bat
+
+//To run rviz2
+ros2 run rviz2 rviz2

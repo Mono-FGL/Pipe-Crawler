@@ -1,0 +1,77 @@
+// This gives how far drifted from starting point (No direction just magnitude)
+// Good for diagnostics/sensor fusion
+// Foward Declaration(Function Prototypes)
+Quat normalize(Quat q);
+double quat_dot(Quat q1, Quat q2);
+double angular_distance(Quat q_ref, Quat q_curr);
+
+Quat magnitude (Angle from original reference)
+void ControlQuat(imu::Quaternion quat)
+{
+  //Pack libary into custom Quat structure
+  current_orientation.w = quat.w();
+  current_orientation.x = quat.x();
+  current_orientation.y = quat.y();
+  current_orientation.z = quat.z();
+
+  //Captures
+  if(!isReferenceSet)
+  {
+    reference_orientation = current_orientation;
+    isReferenceSet = true;
+    Serial.println("IMU Reference position locked");
+  }
+
+  static unsigned long previousMillis = 0;
+  unsigned long currentMillis = millis();
+  int interval = 500; 
+
+  if(currentMillis - previousMillis >= interval)
+  {
+  previousMillis = currentMillis;
+  //Calculate 3d drift angle in degrees 
+  double drift_degrees = angular_distance(reference_orientation, current_orientation);
+
+  //Print out degrees to Serial
+  Serial.print("Drift_Degrees: ");
+  Serial.println(drift_degrees);
+  }
+}
+
+Quat normalize(Quat q)
+{
+  double mag = sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
+  // Prevent division if already somehow 0 
+  if(mag == 0)
+  {
+    return {1.0, 0.0, 0.0, 0.0};
+  }
+  q.w = q.w / mag;
+  q.x = q.x / mag;
+  q.y = q.y / mag;
+  q.z = q.z / mag;
+  return q;
+}
+
+double quat_dot(Quat q1, Quat q2)
+{
+  return q1.w*q2.w + q1.x*q2.x + q1.y*q2.y + q1.z*q2.z;
+}
+
+double angular_distance(Quat q_ref, Quat q_curr)
+{
+  //Take reference orientation and current orientation to compare against 
+  //Normalize meaning to convert into vector units 
+  q_ref = normalize(q_ref);
+  q_curr = normalize(q_curr);
+  double dot = quat_dot(q_ref, q_curr);
+  //Get Absolute value
+  dot = fabs(dot);
+  //So it doesn't crash must be <= 1 
+  if (dot > 1.0) dot = 1.0;
+  if (dot < -1.0) dot = -1.0;
+  // acos(Arc Cosine) converts into radians 
+  double angle_radians = 2.0 * acos(dot);
+  // Converts Radians to Degrees 
+  return angle_radians * (180.0 / PI);
+}
