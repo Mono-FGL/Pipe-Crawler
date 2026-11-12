@@ -5,25 +5,23 @@ Part 1: Workspace & Docker Environment Setup
 Step 1: Clone Repositories on Host
 
 Create your workspace directory on the Raspberry Pi host and clone the necessary camera and driver source repositories:
-Bash
-
+'
 mkdir -p /home/project-lumen/ros2_ws/src
-cd /home/project-lumen/ros2_ws/src
+cd /home/project-lumen/ros2_ws/src 
 
 git clone https://github.com/orbbec/ros2_astra_camera.git
 cd /home/project-lumen/ros2_ws
 git clone https://github.com/libuvc/libuvc.git
-
+'
 Step 2: Launch the Docker Container
 
 Start and attach to your interactive ROS 2 Jazzy Docker container, mounting your host workspace into /root/ros2_ws:
-Bash
-
+'
 sudo docker run -it --name jazzy --net host --privileged \
   -v /dev:/dev \
   -v /home/project-lumen/ros2_ws:/root/ros2_ws \
   ros:jazzy
-
+'
 (For subsequent sessions, resume the container using: sudo docker start -ai jazzy)
 Part 2: Installing Dependencies & Building libuvc
 
