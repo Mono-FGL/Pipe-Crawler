@@ -172,3 +172,72 @@ ros2 bag play ~/pipe_run1 --loop
 ros2 run rqt_image_view rqt_image_view
 
 *(Select `/camera/depth/image_raw` or `/camera/color/image_raw` from the dropdown).*
+-------------------------------------------
+
+# ROS 2 Jazzy & Foxglove Studio Setup Guide on Windows WSL 2
+
+## Add the ROS 2 repository:
+
+```
+sudo apt update && sudo apt install -y software-properties-common curl
+sudo add-apt-repository universe
+```
+
+```
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+```
+
+```
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+```
+
+## 3. Install ROS (one copy of this line only):
+
+```
+sudo apt update && sudo apt install -y ros-jazzy-desktop ros-jazzy-rqt-image-view ros-jazzy-rosbag2-storage-mcap
+```
+
+
+**Load ROS in each new terminal:**
+
+```
+source /opt/ros/jazzy/setup.bash
+```
+
+To do it automatically, run `echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc` once.
+
+## 4. Test it:
+
+```
+ros2 --help
+```
+
+## Plug USB in and get
+
+**Mount it in WSL** (replace `d` with your letter, lowercase in the folder name, uppercase with the colon):
+
+```
+sudo mkdir -p /mnt/d
+sudo mount -t drvfs D: /mnt/d
+```
+
+## 5. Check that test2 is there:
+
+```
+ls /mnt/d
+```
+
+## 6. Copy it:
+
+```
+cp -r /mnt/d/test2 ~/test2
+```
+
+**If the mount fails or the drive isn’t listed in Windows:**
+
+### Play and verify
+
+## Fox Glove Studio 
+
+- Open Local File 
+- Search: \\wsl.localhost\Ubuntu-24.04\home\jvherr06\test2
