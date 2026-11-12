@@ -1,4 +1,4 @@
-Orbbec Astra Mini Pro & ROS 2 Jazzy Setup Guide
+# Orbbec Astra Mini Pro & ROS 2 Jazzy Setup Guide
 
 This guide details how to build, compile, patch, and run the Orbbec Astra Mini Pro depth camera package (ros2_astra_camera) inside a Docker container running ROS 2 Jazzy on a Raspberry Pi 5, along with bag recording and local WSL playback workflows.
 Part 1: Workspace & Docker Environment Setup
