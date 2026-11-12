@@ -243,3 +243,5 @@ cp -r /mnt/d/test2 ~/test2
 
 - Open Local File 
 - Search: \\wsl.localhost\Ubuntu-24.04\home\(user name)\test2
+
+Shoutout CLaude Fable 5.2 and Qwen 3.5 
